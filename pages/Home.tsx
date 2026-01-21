@@ -31,6 +31,11 @@ export const HomePage: React.FC<HomeProps> = ({ drinks, target, onAddDrink, onRe
     setTimeout(() => setIsAnimating(false), 200);
   };
 
+  const handleRemove = () => {
+    if (navigator.vibrate) navigator.vibrate(5);
+    onRemoveLastDrink();
+  };
+
   return (
     <div className="flex flex-col h-full safe-top pb-32">
       <header className="px-6 py-4 flex items-center justify-between">
@@ -57,9 +62,9 @@ export const HomePage: React.FC<HomeProps> = ({ drinks, target, onAddDrink, onRe
           </div>
 
           <button 
-            onClick={onRemoveLastDrink}
+            onClick={handleRemove}
             disabled={count === 0}
-            className="p-2 text-md3-secondary hover:bg-md3-surfaceVariant rounded-full transition-colors disabled:opacity-30"
+            className="p-2 text-md3-secondary hover:bg-md3-surfaceVariant rounded-full transition-colors disabled:opacity-30 active:scale-90"
           >
             <Minus size={20} />
           </button>
