@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Plus, Minus, Droplets } from 'lucide-react';
+import { Plus, Minus, Droplets, Cloud, CloudOff, CheckCircle2, Loader2 } from 'lucide-react';
 import { DrinkRecord } from '../types';
 import { WaveProgress } from '../components/WaveProgress';
 
@@ -8,9 +8,10 @@ interface HomeProps {
   target: number;
   onAddDrink: () => void;
   onRemoveLastDrink: () => void;
+  syncStatus: 'idle' | 'syncing' | 'synced' | 'error';
 }
 
-export const HomePage: React.FC<HomeProps> = ({ drinks, target, onAddDrink, onRemoveLastDrink }) => {
+export const HomePage: React.FC<HomeProps> = ({ drinks, target, onAddDrink, onRemoveLastDrink, syncStatus }) => {
   const [isAnimating, setIsAnimating] = useState(false);
 
   const todayDrinks = useMemo(() => {
@@ -24,72 +25,69 @@ export const HomePage: React.FC<HomeProps> = ({ drinks, target, onAddDrink, onRe
   const remaining = Math.max(0, target - count);
 
   const handleAdd = () => {
-    if (navigator.vibrate) {
-      navigator.vibrate(50);
-    }
-
+    if (navigator.vibrate) navigator.vibrate(10);
     setIsAnimating(true);
     onAddDrink();
-    setTimeout(() => setIsAnimating(false), 300);
-  };
-
-  const handleRemove = () => {
-    if (navigator.vibrate) {
-      navigator.vibrate(50);
-    }
-    onRemoveLastDrink();
+    setTimeout(() => setIsAnimating(false), 200);
   };
 
   return (
-    <div className="flex flex-col items-center justify-between h-full pt-10 pb-24 px-4 max-w-md mx-auto w-full">
-      <div className="text-center space-y-2">
-        <h1 className="text-3xl font-bold text-slate-800 flex items-center justify-center gap-2">
-          <Droplets className="text-water-500" fill="currentColor" />
-          HydroTrack
-        </h1>
-        <p className="text-slate-500 text-sm">Stay hydrated, stay healthy</p>
-      </div>
-
-      <div className="flex-1 flex flex-col items-center justify-center w-full my-8">
-        <WaveProgress percentage={percentage} />
-        
-        <div className="w-48 h-2.5 bg-slate-100 rounded-full mt-8 overflow-hidden shadow-inner">
-          <div 
-            className="h-full bg-water-500 transition-all duration-700 ease-out rounded-full"
-            style={{ width: `${Math.min(percentage, 100)}%` }}
-          />
-        </div>
-        
-        <div className="mt-6 text-center">
-          <div className="text-5xl font-black text-slate-800 tabular-nums">
-            {count} <span className="text-2xl text-slate-400 font-normal">/ {target}</span>
+    <div className="flex flex-col h-full safe-top pb-32">
+      <header className="px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-md3-primaryContainer text-md3-onPrimaryContainer rounded-xl shadow-sm">
+            <Droplets size={24} />
           </div>
-          <p className="text-slate-500 mt-2 font-medium">
-            {remaining > 0 
-              ? `${remaining} more glass${remaining !== 1 ? 'es' : ''} to reach your goal!` 
-              : "Daily target reached! Great job! 🎉"}
-          </p>
+          <h1 className="text-xl font-bold text-md3-onSurface">HydroTrack</h1>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          {/* Sync Status Indicator */}
+          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+            syncStatus === 'synced' ? 'bg-green-50 text-green-600' :
+            syncStatus === 'syncing' ? 'bg-blue-50 text-blue-500' :
+            syncStatus === 'error' ? 'bg-red-50 text-red-500' : 'bg-slate-50 text-slate-400'
+          }`}>
+            {syncStatus === 'syncing' ? <Loader2 size={14} className="animate-spin" /> : 
+             syncStatus === 'synced' ? <CheckCircle2 size={14} /> : 
+             syncStatus === 'error' ? <CloudOff size={14} /> : <Cloud size={14} />}
+            <span className="hidden sm:inline uppercase tracking-tighter">
+              {syncStatus === 'syncing' ? 'Syncing' : syncStatus === 'synced' ? 'Saved' : syncStatus === 'error' ? 'Offline' : 'Local'}
+            </span>
+          </div>
+
+          <button 
+            onClick={onRemoveLastDrink}
+            disabled={count === 0}
+            className="p-2 text-md3-secondary hover:bg-md3-surfaceVariant rounded-full transition-colors disabled:opacity-30"
+          >
+            <Minus size={20} />
+          </button>
+        </div>
+      </header>
+
+      <div className="flex-1 flex flex-col items-center justify-center px-6">
+        <div className={`transition-transform duration-200 ${isAnimating ? 'scale-110' : 'scale-100'}`}>
+          <WaveProgress percentage={percentage} />
+        </div>
+        
+        <div className="mt-12 text-center space-y-1">
+          <div className="text-sm font-medium text-md3-secondary uppercase tracking-widest">Today's Intake</div>
+          <div className="text-5xl font-black text-md3-onSurface tracking-tight">
+            {count} <span className="text-2xl text-md3-outline font-light">/ {target}</span>
+          </div>
+          <div className="mt-4 px-6 py-2 bg-md3-primaryContainer text-md3-onPrimaryContainer rounded-full text-sm font-semibold inline-block">
+             {remaining > 0 ? `${remaining} glasses left` : "Daily Goal Achieved! ✨"}
+          </div>
         </div>
       </div>
 
-      <div className="w-full flex items-center justify-center gap-6">
-        <button 
-          onClick={handleRemove}
-          disabled={count === 0}
-          className="p-4 rounded-full bg-gray-200 text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-300 transition-colors"
-          aria-label="Remove drink"
-        >
-          <Minus size={24} />
-        </button>
-
-        <button 
-          onClick={handleAdd}
-          className={`p-6 rounded-full bg-water-500 text-white shadow-lg shadow-water-200 hover:bg-water-600 active:bg-water-700 transition-all transform ${isAnimating ? 'scale-90' : 'scale-100 hover:scale-105'}`}
-          aria-label="Add drink"
-        >
-          <Plus size={40} />
-        </button>
-      </div>
+      <button 
+        onClick={handleAdd}
+        className="fixed bottom-24 right-6 w-20 h-20 bg-md3-primaryContainer text-md3-onPrimaryContainer rounded-[28px] shadow-lg flex items-center justify-center active:scale-90 transition-all duration-200 group"
+      >
+        <Plus size={32} className="group-active:rotate-90 transition-transform" />
+      </button>
     </div>
   );
 };
