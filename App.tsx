@@ -1,6 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { DrinkRecord, View } from './types';
-import { getStoredDrinks, saveStoredDrinks, getStoredTarget, saveStoredTarget } from './utils/storage';
+import React, { useState, useEffect, useRef } from 'react';
+import { DrinkRecord, View, SyncData, STORAGE_KEY_SYNC_ID, SyncLog } from './types';
+import { 
+  getStoredDrinks, 
+  saveStoredDrinks, 
+  getStoredTarget, 
+  saveStoredTarget, 
+  getStoredView, 
+  saveStoredView 
+} from './utils/storage';
+import { pullFromCloud, pushToCloud } from './utils/sync';
 import { HomePage } from './pages/Home';
 import { HistoryPage } from './pages/History';
 import { SettingsPage } from './pages/Settings';
@@ -10,27 +18,117 @@ const App: React.FC = () => {
   const [view, setView] = useState<View>('home');
   const [drinks, setDrinks] = useState<DrinkRecord[]>([]);
   const [target, setTarget] = useState<number>(8);
+  const [syncId, setSyncId] = useState<string | null>(() => {
+    const stored = localStorage.getItem(STORAGE_KEY_SYNC_ID);
+    return (stored && stored !== 'null' && stored !== 'undefined') ? stored : null;
+  });
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
+  const [syncLogs, setSyncLogs] = useState<SyncLog[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
+  
+  const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const addLog = (status: 'success' | 'error' | 'info', message: string) => {
+    const newLog: SyncLog = {
+      id: crypto.randomUUID(),
+      timestamp: Date.now(),
+      status,
+      message
+    };
+    setSyncLogs(prev => [newLog, ...prev].slice(0, 10)); // Keep only last 10 logs
+  };
+
+  // Initial Load
   useEffect(() => {
-    const loadedDrinks = getStoredDrinks();
-    const loadedTarget = getStoredTarget();
-    setDrinks(loadedDrinks);
-    setTarget(loadedTarget);
-    setIsLoaded(true);
+    const init = async () => {
+      const loadedDrinks = getStoredDrinks();
+      const loadedTarget = getStoredTarget();
+      const loadedView = getStoredView();
+      
+      setDrinks(loadedDrinks);
+      setTarget(loadedTarget);
+      setView(loadedView);
+      
+      if (syncId) {
+        setSyncStatus('syncing');
+        addLog('info', 'Connecting to cloud service...');
+        const cloudData = await pullFromCloud(syncId);
+        if (cloudData) {
+          if (cloudData.drinks.length >= loadedDrinks.length || cloudData.updatedAt > (Date.now() - 300000)) {
+            setDrinks(cloudData.drinks);
+            setTarget(cloudData.target);
+            addLog('success', `Restored ${cloudData.drinks.length} records from cloud.`);
+          } else {
+            addLog('info', 'Cloud version is up to date.');
+          }
+          setSyncStatus('synced');
+        } else {
+          setSyncStatus('error');
+          addLog('error', 'Cloud retrieval failed.');
+        }
+      }
+      
+      setIsLoaded(true);
+    };
+    init();
   }, []);
 
+  // Save changes to localStorage AND trigger Cloud Sync
   useEffect(() => {
     if (isLoaded) {
       saveStoredDrinks(drinks);
+      triggerCloudSync();
     }
   }, [drinks, isLoaded]);
 
   useEffect(() => {
     if (isLoaded) {
       saveStoredTarget(target);
+      triggerCloudSync();
     }
   }, [target, isLoaded]);
+
+  useEffect(() => {
+    if (isLoaded) {
+      saveStoredView(view);
+    }
+  }, [view, isLoaded]);
+
+  const triggerCloudSync = () => {
+    if (!syncId) return;
+    
+    setSyncStatus('syncing');
+    if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+    
+    syncTimeoutRef.current = setTimeout(async () => {
+      const data: SyncData = {
+        drinks,
+        target,
+        updatedAt: Date.now()
+      };
+      const success = await pushToCloud(syncId, data);
+      setSyncStatus(success ? 'synced' : 'error');
+      if (success) {
+        addLog('success', 'Backup updated successfully.');
+      } else {
+        addLog('error', 'Failed to push updates to cloud.');
+      }
+    }, 2000);
+  };
+
+  const handleSetSyncId = (id: string | null) => {
+    if (id) {
+      localStorage.setItem(STORAGE_KEY_SYNC_ID, id);
+      addLog('info', `Switched to sync session: ${id}`);
+    } else {
+      localStorage.removeItem(STORAGE_KEY_SYNC_ID);
+      addLog('info', 'Cloud sync disabled.');
+    }
+    setSyncId(id);
+    if (id) triggerCloudSync();
+  };
+
+  const clearLogs = () => setSyncLogs([]);
 
   const addDrink = () => {
     const newDrink: DrinkRecord = {
@@ -45,9 +143,7 @@ const App: React.FC = () => {
     const today = new Date();
     today.setHours(0,0,0,0);
     const lastTodayIndex = drinks.reduce((lastIndex, drink, index) => {
-      if (drink.timestamp >= today.getTime()) {
-        return index;
-      }
+      if (drink.timestamp >= today.getTime()) return index;
       return lastIndex;
     }, -1);
 
@@ -58,26 +154,39 @@ const App: React.FC = () => {
     }
   };
 
-  if (!isLoaded) return null;
+  if (!isLoaded) return (
+    <div className="h-screen w-full flex items-center justify-center bg-md3-surface">
+      <div className="w-12 h-12 border-4 border-md3-primary border-t-transparent rounded-full animate-spin"></div>
+    </div>
+  );
 
   return (
-    <div className="h-screen w-full bg-gray-50 flex flex-col font-sans text-slate-900">
-      <main className="flex-1 overflow-hidden relative">
-        <div className={`absolute inset-0 transition-opacity duration-300 ${view === 'home' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
+    <div className="h-screen w-full flex flex-col relative overflow-hidden bg-md3-surface">
+      <main className="flex-1 relative overflow-hidden">
+        <div className={`absolute inset-0 transition-all duration-300 transform ${view === 'home' ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-95 pointer-events-none'}`}>
           <HomePage 
             drinks={drinks} 
             target={target} 
             onAddDrink={addDrink} 
-            onRemoveLastDrink={removeLastDrink}
+            onRemoveLastDrink={removeLastDrink} 
+            syncStatus={syncStatus}
           />
         </div>
         
-        <div className={`absolute inset-0 transition-opacity duration-300 ${view === 'history' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
+        <div className={`absolute inset-0 transition-all duration-300 transform ${view === 'history' ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-95 pointer-events-none'}`}>
           <HistoryPage drinks={drinks} target={target} />
         </div>
 
-        <div className={`absolute inset-0 transition-opacity duration-300 ${view === 'settings' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
-           <SettingsPage target={target} setTarget={setTarget} />
+        <div className={`absolute inset-0 transition-all duration-300 transform ${view === 'settings' ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-95 pointer-events-none'}`}>
+           <SettingsPage 
+            target={target} 
+            setTarget={setTarget} 
+            totalRecords={drinks.length} 
+            syncId={syncId} 
+            onSetSyncId={handleSetSyncId}
+            syncLogs={syncLogs}
+            onClearLogs={clearLogs}
+           />
         </div>
       </main>
 
