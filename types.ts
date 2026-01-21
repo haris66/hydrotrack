@@ -23,3 +23,10 @@ export interface SyncData {
   target: number;
   updatedAt: number;
 }
+
+export interface SyncLog {
+  id: string;
+  timestamp: number;
+  status: 'success' | 'error' | 'info';
+  message: string;
+}
