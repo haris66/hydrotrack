@@ -1,4 +1,4 @@
-import { DrinkRecord, STORAGE_KEY_DRINKS, STORAGE_KEY_TARGET, DEFAULT_DAILY_TARGET } from '../types';
+import { DrinkRecord, STORAGE_KEY_DRINKS, STORAGE_KEY_TARGET, STORAGE_KEY_VIEW, DEFAULT_DAILY_TARGET, View } from '../types';
 
 export const getStoredDrinks = (): DrinkRecord[] => {
   try {
@@ -33,4 +33,28 @@ export const saveStoredTarget = (target: number) => {
   } catch (e) {
     console.error("Failed to save target", e);
   }
+};
+
+export const getStoredView = (): View => {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY_VIEW);
+    return (stored as View) || 'home';
+  } catch (e) {
+    return 'home';
+  }
+};
+
+export const saveStoredView = (view: View) => {
+  try {
+    localStorage.setItem(STORAGE_KEY_VIEW, view);
+  } catch (e) {
+    console.error("Failed to save view", e);
+  }
+};
+
+export const clearAllData = () => {
+  localStorage.removeItem(STORAGE_KEY_DRINKS);
+  localStorage.removeItem(STORAGE_KEY_TARGET);
+  localStorage.removeItem(STORAGE_KEY_VIEW);
+  window.location.reload();
 };
