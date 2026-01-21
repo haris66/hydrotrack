@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>HydroTrack</title>
+    <meta name="theme-color" content="#3b82f6" />
+    <meta name="description" content="Track your daily water intake efficiently." />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="https://picsum.photos/192/192" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              water: {
+                50: '#f0f9ff',
+                100: '#e0f2fe',
+                200: '#bae6fd',
+                300: '#7dd3fc',
+                400: '#38bdf8',
+                500: '#0ea5e9',
+                600: '#0284c7',
+                700: '#0369a1',
+                800: '#075985',
+                900: '#0c4a6e',
+              }
+            },
+            animation: {
+              'wave': 'wave 3s linear infinite',
+              'bounce-slight': 'bounce-slight 0.3s ease-in-out',
+            },
+            keyframes: {
+              wave: {
+                '0%': { transform: 'translateX(0)' },
+                '100%': { transform: 'translateX(-50%)' },
+              },
+              'bounce-slight': {
+                '0%, 100%': { transform: 'scale(1)' },
+                '50%': { transform: 'scale(0.95)' },
+              }
+            }
+          },
+        },
+      }
+    </script>
+    <style>
+      body {
+        overscroll-behavior-y: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+    </style>
+  </head>
+  <body class="bg-gray-50 text-slate-900 select-none h-screen overflow-hidden">
+    <div id="root" class="h-full w-full"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
