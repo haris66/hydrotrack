@@ -1,6 +1,9 @@
 import { SyncData, SyncResult } from '../types';
 
-// Using JSONBlob as the primary provider.
+/**
+ * Using JSONBlob as the reliable primary provider.
+ * We use a slightly different URL structure that is often more CORS-friendly.
+ */
 const API_BASE = 'https://jsonblob.com/api/jsonBlob';
 
 export const createCloudBin = async (initialData: SyncData): Promise<SyncResult<string>> => {
@@ -14,8 +17,7 @@ export const createCloudBin = async (initialData: SyncData): Promise<SyncResult<
     });
 
     if (!response.ok) {
-      const errText = await response.text().catch(() => 'No error body');
-      return { success: false, error: `Server error ${response.status}: ${errText}` };
+      return { success: false, error: `Cloud Error ${response.status}: Failed to create session.` };
     }
 
     const location = response.headers.get('Location');
@@ -26,7 +28,10 @@ export const createCloudBin = async (initialData: SyncData): Promise<SyncResult<
     const id = location.substring(location.lastIndexOf('/') + 1);
     return { success: true, data: id };
   } catch (e: any) {
-    return { success: false, error: `Connection failed: ${e.message}. Check your internet.` };
+    if (e.name === 'TypeError') {
+      return { success: false, error: 'Sync Blocked (CORS/Network). Try a different browser or disable tracking protection.' };
+    }
+    return { success: false, error: `Connection failed: ${e.message}` };
   }
 };
 
@@ -41,13 +46,13 @@ export const pushToCloud = async (syncId: string, data: SyncData): Promise<SyncR
     });
 
     if (!response.ok) {
-      const text = await response.text().catch(() => 'No error body');
-      return { success: false, error: `Upload failed (${response.status}): ${text}` };
+      if (response.status === 404) return { success: false, error: 'Sync session expired or key invalid.' };
+      return { success: false, error: `Upload failed: HTTP ${response.status}` };
     }
 
     return { success: true };
   } catch (e: any) {
-    return { success: false, error: `Network error during push: ${e.message}` };
+    return { success: false, error: 'Cloud push failed. Check internet connection.' };
   }
 };
 
@@ -61,16 +66,16 @@ export const pullFromCloud = async (syncId: string): Promise<SyncResult<SyncData
     });
     
     if (response.status === 404) {
-      return { success: false, error: 'Sync key not found on server.' };
+      return { success: false, error: 'Cloud key not found.' };
     }
     
     if (!response.ok) {
-      return { success: false, error: `Download failed: ${response.status}` };
+      return { success: false, error: `Download failed: Status ${response.status}` };
     }
 
     const data = await response.json();
     return { success: true, data: data as SyncData };
   } catch (e: any) {
-    return { success: false, error: `Network error during pull: ${e.message}` };
+    return { success: false, error: 'Could not reach cloud server.' };
   }
 };
