@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Target, Info, Download, Smartphone, Check, Share, MoreVertical, Database, Trash2, Cloud, RefreshCw, Key, Copy, CloudOff, AlertCircle, Clock } from 'lucide-react';
-import { clearAllData } from '../utils/storage';
-import { generateSyncId } from '../utils/sync';
+import { Target, Info, Download, Smartphone, Check, Share, MoreVertical, Database, Trash2, Cloud, RefreshCw, Key, Copy, CloudOff, AlertCircle, Clock, Loader2 } from 'lucide-react';
+import { clearAllData, getStoredDrinks, getStoredTarget } from '../utils/storage';
+import { createCloudBin } from '../utils/sync';
 import { SyncLog } from '../types';
 
 interface SettingsProps {
@@ -12,10 +12,11 @@ interface SettingsProps {
   onSetSyncId: (id: string | null) => void;
   syncLogs: SyncLog[];
   onClearLogs: () => void;
+  onManualSync: () => void;
 }
 
 export const SettingsPage: React.FC<SettingsProps> = ({ 
-  target, setTarget, totalRecords, syncId, onSetSyncId, syncLogs, onClearLogs 
+  target, setTarget, totalRecords, syncId, onSetSyncId, syncLogs, onClearLogs, onManualSync 
 }) => {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isInstalled, setIsInstalled] = useState(false);
@@ -23,6 +24,8 @@ export const SettingsPage: React.FC<SettingsProps> = ({
   const [isPreviewEnv, setIsPreviewEnv] = useState(false);
   const [inputSyncId, setInputSyncId] = useState('');
   const [copyFeedback, setCopyFeedback] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
 
   useEffect(() => {
     if (window.location.hostname.includes('google') || window.location.hostname.includes('webcontainer')) {
@@ -60,14 +63,37 @@ export const SettingsPage: React.FC<SettingsProps> = ({
     }
   };
 
-  const handleCreateSync = () => {
-    const newId = generateSyncId();
-    onSetSyncId(newId);
+  const handleCreateSync = async () => {
+    setIsGenerating(true);
+    setGenError(null);
+    
+    // Prepare initial data to upload
+    const drinks = getStoredDrinks();
+    const target = getStoredTarget();
+    
+    const result = await createCloudBin({
+      drinks,
+      target,
+      updatedAt: Date.now()
+    });
+
+    setIsGenerating(false);
+
+    if (result.success && result.data) {
+      onSetSyncId(result.data);
+    } else {
+      setGenError(result.error || "Failed to generate key");
+    }
   };
 
   const handleJoinSync = () => {
     if (inputSyncId.trim().length < 4) return;
-    onSetSyncId(inputSyncId.trim().toUpperCase());
+    // Extract ID if user pasted a full URL
+    let cleanId = inputSyncId.trim();
+    if (cleanId.includes('/')) {
+        cleanId = cleanId.substring(cleanId.lastIndexOf('/') + 1);
+    }
+    onSetSyncId(cleanId);
     setInputSyncId('');
     setTimeout(() => window.location.reload(), 500);
   };
@@ -108,11 +134,11 @@ export const SettingsPage: React.FC<SettingsProps> = ({
           <div className="space-y-4 relative z-10">
             <div className="bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/20">
               <p className="text-[10px] text-blue-100 uppercase font-black mb-1 tracking-widest">Your Private Sync Key</p>
-              <div className="flex items-center justify-between">
-                <span className="text-3xl font-mono font-black tracking-widest">{syncId}</span>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-mono font-bold break-all leading-tight">{syncId}</span>
                 <button 
                   onClick={copyToClipboard}
-                  className="p-3 bg-white/20 hover:bg-white/30 rounded-xl transition-all active:scale-90"
+                  className="p-3 bg-white/20 hover:bg-white/30 rounded-xl transition-all active:scale-90 shrink-0"
                 >
                   {copyFeedback ? <Check size={20} /> : <Copy size={20} />}
                 </button>
@@ -135,13 +161,13 @@ export const SettingsPage: React.FC<SettingsProps> = ({
                 ) : (
                   syncLogs.map(log => (
                     <div key={log.id} className="flex gap-2 p-2 rounded-lg bg-white/5 border border-white/5">
-                      <div className="mt-0.5">
+                      <div className="mt-0.5 shrink-0">
                         {log.status === 'success' ? <Check size={12} className="text-green-300" /> : 
                          log.status === 'error' ? <AlertCircle size={12} className="text-red-300" /> : 
                          <Info size={12} className="text-blue-200" />}
                       </div>
-                      <div className="flex-1">
-                        <p className="text-[10px] font-bold leading-tight">{log.message}</p>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] font-bold leading-tight break-words">{log.message}</p>
                         <p className="text-[8px] opacity-60 font-mono mt-0.5">{formatTime(log.timestamp)}</p>
                       </div>
                     </div>
@@ -150,23 +176,40 @@ export const SettingsPage: React.FC<SettingsProps> = ({
               </div>
             </div>
 
-            <button 
-              onClick={() => onSetSyncId(null)}
-              className="w-full py-2.5 text-xs text-blue-100 font-bold uppercase tracking-widest hover:text-white transition-colors"
-            >
-              Disable Sync & Remove Key
-            </button>
+            <div className="pt-2 space-y-2">
+              <button 
+                onClick={onManualSync}
+                className="w-full py-3 bg-white/20 hover:bg-white/30 rounded-xl flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-widest text-white transition-all active:scale-95"
+              >
+                <RefreshCw size={16} /> Sync Now
+              </button>
+
+              <button 
+                onClick={() => onSetSyncId(null)}
+                className="w-full py-2.5 text-xs text-blue-200 font-bold uppercase tracking-widest hover:text-white transition-colors"
+              >
+                Disable Sync & Remove Key
+              </button>
+            </div>
           </div>
         ) : (
           <div className="space-y-5 relative z-10">
             <button 
               onClick={handleCreateSync}
-              className="w-full flex items-center justify-center gap-3 bg-white text-blue-600 py-4 rounded-2xl font-black shadow-md active:scale-95 transition-all"
+              disabled={isGenerating}
+              className="w-full flex items-center justify-center gap-3 bg-white text-blue-600 py-4 rounded-2xl font-black shadow-md active:scale-95 transition-all disabled:opacity-70 disabled:scale-100"
             >
-              <RefreshCw size={20} />
-              GENERATE SYNC KEY
+              {isGenerating ? <Loader2 size={20} className="animate-spin" /> : <RefreshCw size={20} />}
+              {isGenerating ? 'GENERATING...' : 'GENERATE SYNC KEY'}
             </button>
             
+            {genError && (
+               <div className="bg-red-500/20 border border-red-500/30 p-3 rounded-xl flex items-center gap-2">
+                  <AlertCircle size={16} className="text-red-200 shrink-0" />
+                  <span className="text-xs text-red-100 font-medium leading-tight">{genError}</span>
+               </div>
+            )}
+
             <div className="flex items-center gap-4">
               <div className="h-[1px] flex-1 bg-white/20"></div>
               <span className="text-[10px] font-black uppercase text-blue-100 tracking-tighter">Existing users</span>
@@ -179,7 +222,7 @@ export const SettingsPage: React.FC<SettingsProps> = ({
                 placeholder="ENTER KEY"
                 value={inputSyncId}
                 onChange={(e) => setInputSyncId(e.target.value)}
-                className="flex-1 bg-white/10 border border-white/30 rounded-2xl px-4 py-3 font-mono text-center tracking-widest placeholder:text-blue-200 focus:outline-none focus:bg-white/20"
+                className="flex-1 bg-white/10 border border-white/30 rounded-2xl px-4 py-3 font-mono text-center text-xs tracking-widest placeholder:text-blue-200 focus:outline-none focus:bg-white/20"
               />
               <button 
                 onClick={handleJoinSync}
