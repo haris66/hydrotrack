@@ -1,36 +1,32 @@
 import { SyncData, SyncResult } from '../types';
 
+// Using JSONBlob as the primary provider.
 const API_BASE = 'https://jsonblob.com/api/jsonBlob';
 
-/**
- * Creates a new storage bin on the cloud provider.
- * Returns the new ID (UUID) or an error.
- */
 export const createCloudBin = async (initialData: SyncData): Promise<SyncResult<string>> => {
   try {
     const response = await fetch(API_BASE, {
       method: 'POST',
       headers: { 
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify(initialData),
     });
 
     if (!response.ok) {
-      return { success: false, error: `Create failed: ${response.status} ${response.statusText}` };
+      const errText = await response.text().catch(() => 'No error body');
+      return { success: false, error: `Server error ${response.status}: ${errText}` };
     }
 
     const location = response.headers.get('Location');
     if (!location) {
-      return { success: false, error: 'Server did not return a valid ID location.' };
+      return { success: false, error: 'Cloud provider did not return a session ID.' };
     }
 
-    // Extract ID from Location header (last segment of the URL)
     const id = location.substring(location.lastIndexOf('/') + 1);
     return { success: true, data: id };
   } catch (e: any) {
-    return { success: false, error: `Network error: ${e.message}` };
+    return { success: false, error: `Connection failed: ${e.message}. Check your internet.` };
   }
 };
 
@@ -39,54 +35,42 @@ export const pushToCloud = async (syncId: string, data: SyncData): Promise<SyncR
     const response = await fetch(`${API_BASE}/${syncId}`, {
       method: 'PUT',
       headers: { 
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify(data),
     });
 
     if (!response.ok) {
-      // Try to read error body if available
-      const text = await response.text().catch(() => '');
-      return { success: false, error: `Push failed (${response.status}): ${text || response.statusText}` };
+      const text = await response.text().catch(() => 'No error body');
+      return { success: false, error: `Upload failed (${response.status}): ${text}` };
     }
 
     return { success: true };
   } catch (e: any) {
-    return { success: false, error: `Push error: ${e.message}` };
+    return { success: false, error: `Network error during push: ${e.message}` };
   }
 };
 
 export const pullFromCloud = async (syncId: string): Promise<SyncResult<SyncData>> => {
   try {
     const response = await fetch(`${API_BASE}/${syncId}`, {
+      method: 'GET',
       headers: {
         'Accept': 'application/json'
       }
     });
     
     if (response.status === 404) {
-      return { success: false, error: 'Key not found. Check if the ID is correct.' };
+      return { success: false, error: 'Sync key not found on server.' };
     }
     
     if (!response.ok) {
-      return { success: false, error: `Pull failed: ${response.status} ${response.statusText}` };
+      return { success: false, error: `Download failed: ${response.status}` };
     }
 
     const data = await response.json();
-    
-    // Basic validation
-    if (data && typeof data === 'object' && ('drinks' in data || 'target' in data)) {
-      return { success: true, data: data as SyncData };
-    }
-    
-    return { success: false, error: 'Invalid data format received from cloud.' };
+    return { success: true, data: data as SyncData };
   } catch (e: any) {
-    return { success: false, error: `Pull error: ${e.message}` };
+    return { success: false, error: `Network error during pull: ${e.message}` };
   }
-};
-
-// Kept for backward compatibility if needed, but creates a placeholder
-export const generateSyncId = () => {
-  return "Please use 'Generate Sync Key' button";
 };
