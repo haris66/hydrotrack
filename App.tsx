@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { DrinkRecord, View, SyncData, STORAGE_KEY_SYNC_ID, SyncLog } from './types';
 import { 
@@ -23,6 +24,7 @@ const App: React.FC = () => {
     return (stored && stored !== 'null' && stored !== 'undefined') ? stored : null;
   });
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
+  const [lastSyncError, setLastSyncError] = useState<string | null>(null);
   const [syncLogs, setSyncLogs] = useState<SyncLog[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
   
@@ -36,6 +38,8 @@ const App: React.FC = () => {
       message
     };
     setSyncLogs(prev => [newLog, ...prev].slice(0, 10)); // Keep only last 10 logs
+    if (status === 'error') setLastSyncError(message);
+    else if (status === 'success') setLastSyncError(null);
   };
 
   // Initial Load
@@ -56,8 +60,6 @@ const App: React.FC = () => {
         
         if (result.success && result.data) {
           const cloudData = result.data;
-          // Simple conflict resolution: take cloud if it has more drinks or is significantly newer
-          // Note: Real apps should merge, but for this demo, we prioritize the "bigger" dataset or newest.
           if (cloudData.drinks.length > loadedDrinks.length || (cloudData.drinks.length === loadedDrinks.length && cloudData.updatedAt > (Date.now() - 300000))) {
             setDrinks(cloudData.drinks);
             setTarget(cloudData.target);
@@ -142,7 +144,6 @@ const App: React.FC = () => {
     }
     setSyncId(id);
     if (id) {
-        // Trigger an immediate pull/merge when setting a new ID
         setSyncStatus('syncing');
         pullFromCloud(id).then(result => {
              if (result.success && result.data) {
@@ -151,7 +152,6 @@ const App: React.FC = () => {
                 addLog('success', 'Loaded data from new key.');
                 setSyncStatus('synced');
              } else {
-                // If pull fails (maybe new key has no data yet), we push our data
                 triggerCloudSync();
              }
         });
@@ -194,12 +194,16 @@ const App: React.FC = () => {
     <div className="h-screen w-full flex flex-col relative overflow-hidden bg-md3-surface">
       <main className="flex-1 relative overflow-hidden">
         <div className={`absolute inset-0 transition-all duration-300 transform ${view === 'home' ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-95 pointer-events-none'}`}>
+          {/* Fix: Pass onClearSyncError to HomePage to resolve the missing setLastSyncError in Home.tsx */}
           <HomePage 
             drinks={drinks} 
             target={target} 
             onAddDrink={addDrink} 
             onRemoveLastDrink={removeLastDrink} 
             syncStatus={syncStatus}
+            onManualSync={handleManualSync}
+            lastSyncError={lastSyncError}
+            onClearSyncError={() => setLastSyncError(null)}
           />
         </div>
         
