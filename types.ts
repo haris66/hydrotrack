@@ -30,3 +30,9 @@ export interface SyncLog {
   status: 'success' | 'error' | 'info';
   message: string;
 }
+
+export interface SyncResult<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+}
