@@ -52,19 +52,23 @@ const App: React.FC = () => {
       if (syncId) {
         setSyncStatus('syncing');
         addLog('info', 'Connecting to cloud service...');
-        const cloudData = await pullFromCloud(syncId);
-        if (cloudData) {
-          if (cloudData.drinks.length >= loadedDrinks.length || cloudData.updatedAt > (Date.now() - 300000)) {
+        const result = await pullFromCloud(syncId);
+        
+        if (result.success && result.data) {
+          const cloudData = result.data;
+          // Simple conflict resolution: take cloud if it has more drinks or is significantly newer
+          // Note: Real apps should merge, but for this demo, we prioritize the "bigger" dataset or newest.
+          if (cloudData.drinks.length > loadedDrinks.length || (cloudData.drinks.length === loadedDrinks.length && cloudData.updatedAt > (Date.now() - 300000))) {
             setDrinks(cloudData.drinks);
             setTarget(cloudData.target);
             addLog('success', `Restored ${cloudData.drinks.length} records from cloud.`);
           } else {
-            addLog('info', 'Cloud version is up to date.');
+            addLog('info', 'Local version is up to date.');
           }
           setSyncStatus('synced');
         } else {
           setSyncStatus('error');
-          addLog('error', 'Cloud retrieval failed.');
+          addLog('error', result.error || 'Unknown cloud error during initial pull.');
         }
       }
       
@@ -94,38 +98,64 @@ const App: React.FC = () => {
     }
   }, [view, isLoaded]);
 
-  const triggerCloudSync = () => {
+  const performSync = async () => {
     if (!syncId) return;
     
+    const data: SyncData = {
+      drinks,
+      target,
+      updatedAt: Date.now()
+    };
+    
+    const result = await pushToCloud(syncId, data);
+    setSyncStatus(result.success ? 'synced' : 'error');
+    
+    if (result.success) {
+      addLog('success', 'Sync completed successfully.');
+    } else {
+      addLog('error', result.error || 'Sync failed.');
+    }
+  };
+
+  const triggerCloudSync = () => {
+    if (!syncId) return;
     setSyncStatus('syncing');
     if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-    
-    syncTimeoutRef.current = setTimeout(async () => {
-      const data: SyncData = {
-        drinks,
-        target,
-        updatedAt: Date.now()
-      };
-      const success = await pushToCloud(syncId, data);
-      setSyncStatus(success ? 'synced' : 'error');
-      if (success) {
-        addLog('success', 'Backup updated successfully.');
-      } else {
-        addLog('error', 'Failed to push updates to cloud.');
-      }
-    }, 2000);
+    syncTimeoutRef.current = setTimeout(performSync, 2000);
+  };
+
+  const handleManualSync = () => {
+    if (!syncId) return;
+    setSyncStatus('syncing');
+    if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+    addLog('info', 'Manual sync requested...');
+    performSync();
   };
 
   const handleSetSyncId = (id: string | null) => {
     if (id) {
       localStorage.setItem(STORAGE_KEY_SYNC_ID, id);
-      addLog('info', `Switched to sync session: ${id}`);
+      addLog('info', `Switched to sync session.`);
     } else {
       localStorage.removeItem(STORAGE_KEY_SYNC_ID);
       addLog('info', 'Cloud sync disabled.');
     }
     setSyncId(id);
-    if (id) triggerCloudSync();
+    if (id) {
+        // Trigger an immediate pull/merge when setting a new ID
+        setSyncStatus('syncing');
+        pullFromCloud(id).then(result => {
+             if (result.success && result.data) {
+                setDrinks(result.data.drinks);
+                setTarget(result.data.target);
+                addLog('success', 'Loaded data from new key.');
+                setSyncStatus('synced');
+             } else {
+                // If pull fails (maybe new key has no data yet), we push our data
+                triggerCloudSync();
+             }
+        });
+    }
   };
 
   const clearLogs = () => setSyncLogs([]);
@@ -186,6 +216,7 @@ const App: React.FC = () => {
             onSetSyncId={handleSetSyncId}
             syncLogs={syncLogs}
             onClearLogs={clearLogs}
+            onManualSync={handleManualSync}
            />
         </div>
       </main>
