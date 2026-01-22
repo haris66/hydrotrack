@@ -1,67 +1,92 @@
-import { SyncData } from '../types';
+import { SyncData, SyncResult } from '../types';
+
+const API_BASE = 'https://jsonblob.com/api/jsonBlob';
 
 /**
- * We use a public JSON bin service for this demo.
- * Note: For a production app, you should use a secure backend like Firebase or Supabase.
+ * Creates a new storage bin on the cloud provider.
+ * Returns the new ID (UUID) or an error.
  */
-const API_BASE = 'https://api.npoint.io';
+export const createCloudBin = async (initialData: SyncData): Promise<SyncResult<string>> => {
+  try {
+    const response = await fetch(API_BASE, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(initialData),
+    });
 
-export const generateSyncId = () => {
-  // Generates a 6-character alphanumeric string (e.g., A1B2C3)
-  return Math.random().toString(36).substring(2, 8).toUpperCase();
+    if (!response.ok) {
+      return { success: false, error: `Create failed: ${response.status} ${response.statusText}` };
+    }
+
+    const location = response.headers.get('Location');
+    if (!location) {
+      return { success: false, error: 'Server did not return a valid ID location.' };
+    }
+
+    // Extract ID from Location header (last segment of the URL)
+    const id = location.substring(location.lastIndexOf('/') + 1);
+    return { success: true, data: id };
+  } catch (e: any) {
+    return { success: false, error: `Network error: ${e.message}` };
+  }
 };
 
-export const pushToCloud = async (syncId: string, data: SyncData): Promise<boolean> => {
+export const pushToCloud = async (syncId: string, data: SyncData): Promise<SyncResult<null>> => {
   try {
-    // We use PUT to upsert (create or update) data at the specific syncId endpoint
     const response = await fetch(`${API_BASE}/${syncId}`, {
-      method: 'POST', // Some public bins prefer POST for the first time, but PUT is standard for updates.
+      method: 'PUT',
       headers: { 
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
       },
       body: JSON.stringify(data),
     });
 
-    // If POST fails (bin might already exist), try PUT
     if (!response.ok) {
-      const retryResponse = await fetch(`${API_BASE}/${syncId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      return retryResponse.ok;
+      // Try to read error body if available
+      const text = await response.text().catch(() => '');
+      return { success: false, error: `Push failed (${response.status}): ${text || response.statusText}` };
     }
 
-    return response.ok;
-  } catch (e) {
-    console.error('Cloud Push Failed', e);
-    return false;
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: `Push error: ${e.message}` };
   }
 };
 
-export const pullFromCloud = async (syncId: string): Promise<SyncData | null> => {
+export const pullFromCloud = async (syncId: string): Promise<SyncResult<SyncData>> => {
   try {
-    const response = await fetch(`${API_BASE}/${syncId}`);
+    const response = await fetch(`${API_BASE}/${syncId}`, {
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
     
-    // If the bin doesn't exist yet (404), it's not a failure, just a new key
     if (response.status === 404) {
-      return null;
+      return { success: false, error: 'Key not found. Check if the ID is correct.' };
     }
     
     if (!response.ok) {
-      throw new Error(`Server returned ${response.status}`);
+      return { success: false, error: `Pull failed: ${response.status} ${response.statusText}` };
     }
 
     const data = await response.json();
     
-    // Basic validation to ensure we got HydroTrack data
-    if (data && typeof data === 'object' && 'drinks' in data) {
-      return data as SyncData;
+    // Basic validation
+    if (data && typeof data === 'object' && ('drinks' in data || 'target' in data)) {
+      return { success: true, data: data as SyncData };
     }
     
-    return null;
-  } catch (e) {
-    console.error('Cloud Pull Failed', e);
-    return null;
+    return { success: false, error: 'Invalid data format received from cloud.' };
+  } catch (e: any) {
+    return { success: false, error: `Pull error: ${e.message}` };
   }
+};
+
+// Kept for backward compatibility if needed, but creates a placeholder
+export const generateSyncId = () => {
+  return "Please use 'Generate Sync Key' button";
 };
