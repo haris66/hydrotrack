@@ -1,16 +1,15 @@
 import { SyncData, SyncResult } from '../types';
 
 /**
- * KVDB.io is a public Key-Value store.
- * Strategy: We use 'text/plain' as Content-Type to make it a "Simple Request".
- * Simple Requests do NOT trigger a CORS preflight (OPTIONS), which fixes the Vercel error.
+ * KVDB.io bucket structure: https://kvdb.io/BUCKET_ID/KEY
+ * Per user request: Sync ID (e.g., ZX6EVX) is used as the BUCKET_ID.
+ * We use 'data' as the fixed key inside that bucket.
  */
-const BUCKET_ID = 'hydrotrack_v1_global';
-const API_BASE = `https://kvdb.io/${BUCKET_ID}`;
+const getSyncUrl = (syncId: string) => `https://kvdb.io/${syncId}/data`;
 
 export const createCloudBin = async (initialData: SyncData): Promise<SyncResult<string>> => {
   try {
-    // Generate a clean 6-character ID
+    // Generate a clean 6-character ID for the new bucket
     const syncId = Math.random().toString(36).substring(2, 8).toUpperCase();
     const result = await pushToCloud(syncId, initialData);
     
@@ -25,9 +24,9 @@ export const createCloudBin = async (initialData: SyncData): Promise<SyncResult<
 
 export const pushToCloud = async (syncId: string, data: SyncData): Promise<SyncResult<null>> => {
   try {
-    // We use POST to the key URL.
-    // CRITICAL: Content-Type is 'text/plain' to avoid CORS preflight (OPTIONS)
-    const response = await fetch(`${API_BASE}/${syncId}`, {
+    // We use POST to the bucket/key URL.
+    // Content-Type 'text/plain' makes this a "Simple Request", skipping CORS preflight (OPTIONS).
+    const response = await fetch(getSyncUrl(syncId), {
       method: 'POST',
       headers: { 
         'Content-Type': 'text/plain' 
@@ -36,7 +35,7 @@ export const pushToCloud = async (syncId: string, data: SyncData): Promise<SyncR
     });
 
     if (!response.ok) {
-      return { success: false, error: `Cloud sync failed: ${response.status}` };
+      return { success: false, error: `Cloud sync failed: HTTP ${response.status}` };
     }
 
     return { success: true };
@@ -47,12 +46,13 @@ export const pushToCloud = async (syncId: string, data: SyncData): Promise<SyncR
 
 export const pullFromCloud = async (syncId: string): Promise<SyncResult<SyncData>> => {
   try {
-    const response = await fetch(`${API_BASE}/${syncId}`, {
+    const response = await fetch(getSyncUrl(syncId), {
       method: 'GET',
     });
     
+    // 404 means the bucket or the 'data' key doesn't exist yet.
     if (response.status === 404) {
-      return { success: false, error: '404' }; // Special code for 'Not Created Yet'
+      return { success: false, error: '404' }; 
     }
     
     if (!response.ok) {
