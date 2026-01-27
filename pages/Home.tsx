@@ -52,7 +52,6 @@ export const HomePage: React.FC<HomeProps> = ({
 
   return (
     <div className="flex flex-col h-full safe-top pb-32">
-      {/* Dynamic Header */}
       <header className="px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-md3-primaryContainer text-md3-onPrimaryContainer rounded-xl shadow-sm">
@@ -61,7 +60,6 @@ export const HomePage: React.FC<HomeProps> = ({
           <h1 className="text-xl font-bold text-md3-onSurface">HydroTrack</h1>
         </div>
         
-        {/* Top Sync Status (Clickable) */}
         <button 
           onClick={onManualSync}
           disabled={syncStatus === 'syncing'}
@@ -80,16 +78,14 @@ export const HomePage: React.FC<HomeProps> = ({
         </button>
       </header>
 
-      {/* Main Stats Display */}
       <div className="flex-1 flex flex-col items-center justify-center px-6">
-        {/* Error Notification Bar */}
         {syncStatus === 'error' && lastSyncError && (
           <div className="w-full mb-8 bg-red-600 text-white px-4 py-3 rounded-2xl shadow-lg flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-4">
             <div className="flex items-center gap-2 overflow-hidden">
               <AlertCircle size={18} className="shrink-0" />
               <p className="text-xs font-bold leading-tight line-clamp-2">{lastSyncError}</p>
             </div>
-            <button onClick={onClearSyncError} className="p-1 hover:bg-white/10 rounded-full">
+            <button onClick={onClearSyncError} className="p-1 hover:bg-white/10 rounded-full shrink-0">
                <X size={16} />
             </button>
           </div>
@@ -110,19 +106,16 @@ export const HomePage: React.FC<HomeProps> = ({
         </div>
       </div>
 
-      {/* Control Actions */}
       <div className="px-6 space-y-4 mb-4">
-        {/* Manual Sync Trigger Button */}
         <button 
           onClick={onManualSync}
           disabled={syncStatus === 'syncing'}
-          className="w-full py-4 bg-white border-2 border-md3-primaryContainer rounded-2xl flex items-center justify-center gap-2 text-md3-primary font-black text-sm uppercase tracking-widest active:scale-95 transition-all shadow-sm"
+          className="w-full py-4 bg-white border-2 border-md3-primaryContainer rounded-2xl flex items-center justify-center gap-2 text-md3-primary font-black text-sm uppercase tracking-widest active:scale-95 transition-all shadow-sm disabled:opacity-50"
         >
           {syncStatus === 'syncing' ? <Loader2 className="animate-spin" size={18} /> : <RefreshCw size={18} />}
-          {syncStatus === 'syncing' ? 'Syncing...' : 'Sync Cloud Now'}
+          {syncStatus === 'syncing' ? 'Processing...' : 'Manual Cloud Sync'}
         </button>
 
-        {/* Counter Buttons Group */}
         <div className="flex gap-4">
           <button 
             onClick={handleRemove}
