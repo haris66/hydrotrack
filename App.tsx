@@ -50,7 +50,7 @@ const App: React.FC = () => {
     const result = await pushToCloud(id, data);
     if (result.success) {
       setSyncStatus('synced');
-      addLog('success', 'Backup successful.');
+      addLog('success', 'Cloud backup updated.');
     } else {
       setSyncStatus('error');
       addLog('error', result.error || 'Failed to update cloud.');
@@ -69,7 +69,7 @@ const App: React.FC = () => {
       
       if (syncId) {
         setSyncStatus('syncing');
-        addLog('info', 'Connecting to cloud sync...');
+        addLog('info', `Connecting to cloud bucket: ${syncId}`);
         const result = await pullFromCloud(syncId);
         
         if (result.success && result.data) {
@@ -80,13 +80,15 @@ const App: React.FC = () => {
             setTarget(cloudData.target);
             addLog('success', 'Data restored from cloud.');
           } else {
-            addLog('info', 'Local data is newer, keeping it.');
+            addLog('info', 'Local data is newer, maintaining sync.');
           }
           setSyncStatus('synced');
         } else if (result.error === '404') {
-          // This is a new ID that hasn't been pushed yet. Let's initialize it.
-          addLog('info', 'New session detected. Initializing cloud...');
-          await performPush(syncId);
+          // Key/Bucket doesn't exist. Initialize it.
+          addLog('info', 'Bucket empty. Initializing cloud store...');
+          const data: SyncData = { drinks: loadedDrinks, target: loadedTarget, updatedAt: Date.now() };
+          await pushToCloud(syncId, data);
+          setSyncStatus('synced');
         } else {
           setSyncStatus('error');
           addLog('error', result.error || 'Cloud offline.');
@@ -143,16 +145,16 @@ const App: React.FC = () => {
     
     if (id) {
         setSyncStatus('syncing');
-        addLog('info', `Switching to session: ${id}`);
+        addLog('info', `Switching to bucket: ${id}`);
         pullFromCloud(id).then(async result => {
              if (result.success && result.data) {
                 setDrinks(result.data.drinks);
                 setTarget(result.data.target);
-                addLog('success', 'Connected! Data merged.');
+                addLog('success', 'Cloud data downloaded successfully.');
                 setSyncStatus('synced');
              } else {
-                // If 404 or other error, push local data to claim the ID
-                addLog('info', 'Claiming cloud ID with local data...');
+                // If 404 or other error, push current state to create/fix the cloud ID
+                addLog('info', 'Creating/claiming cloud bucket...');
                 await performPush(id);
              }
         });
@@ -190,13 +192,13 @@ const App: React.FC = () => {
     <div className="h-screen w-full flex items-center justify-center bg-md3-surface text-md3-primary">
       <div className="flex flex-col items-center gap-4">
         <div className="w-10 h-10 border-4 border-current border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-xs font-black uppercase tracking-widest opacity-50">Hydrating...</p>
+        <p className="text-xs font-black uppercase tracking-widest opacity-50">Initializing...</p>
       </div>
     </div>
   );
 
   return (
-    <div className="h-screen w-full flex flex-col relative overflow-hidden bg-md3-surface">
+    <div className="h-screen w-full flex flex-col relative overflow-hidden bg-md3-surface text-md3-onSurface">
       <main className="flex-1 relative overflow-hidden">
         <div className={`absolute inset-0 transition-all duration-300 transform ${view === 'home' ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-95 pointer-events-none'}`}>
           <HomePage 
