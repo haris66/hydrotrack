@@ -1,54 +1,47 @@
 import { SyncData, SyncResult } from '../types';
 
 /**
- * npoint.io is a free, reliable JSON bin service with great CORS support.
- * It provides a simple API to create (POST), update (PUT), and fetch (GET) JSON.
+ * KVDB.io is a public Key-Value store.
+ * Strategy: We use 'text/plain' as Content-Type to make it a "Simple Request".
+ * Simple Requests do NOT trigger a CORS preflight (OPTIONS), which fixes the Vercel error.
  */
-const API_BASE = 'https://api.npoint.io';
+const BUCKET_ID = 'hydrotrack_v1_global';
+const API_BASE = `https://kvdb.io/${BUCKET_ID}`;
 
 export const createCloudBin = async (initialData: SyncData): Promise<SyncResult<string>> => {
   try {
-    const response = await fetch(API_BASE, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(initialData),
-    });
-
-    if (!response.ok) {
-      return { success: false, error: `Cloud Error ${response.status}: Failed to create bin.` };
+    // Generate a clean 6-character ID
+    const syncId = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const result = await pushToCloud(syncId, initialData);
+    
+    if (result.success) {
+      return { success: true, data: syncId };
     }
-
-    const result = await response.json();
-    if (!result.binId) {
-      return { success: false, error: 'Cloud provider did not return a bin ID.' };
-    }
-
-    return { success: true, data: result.binId };
+    return { success: false, error: result.error };
   } catch (e: any) {
-    return { success: false, error: `Connection failed: ${e.message}` };
+    return { success: false, error: 'Could not initialize cloud storage.' };
   }
 };
 
 export const pushToCloud = async (syncId: string, data: SyncData): Promise<SyncResult<null>> => {
   try {
+    // We use POST to the key URL.
+    // CRITICAL: Content-Type is 'text/plain' to avoid CORS preflight (OPTIONS)
     const response = await fetch(`${API_BASE}/${syncId}`, {
-      method: 'PUT',
+      method: 'POST',
       headers: { 
-        'Content-Type': 'application/json'
+        'Content-Type': 'text/plain' 
       },
       body: JSON.stringify(data),
     });
 
     if (!response.ok) {
-      if (response.status === 404) return { success: false, error: 'Sync session not found or expired.' };
-      return { success: false, error: `Upload failed: HTTP ${response.status}` };
+      return { success: false, error: `Cloud sync failed: ${response.status}` };
     }
 
     return { success: true };
   } catch (e: any) {
-    return { success: false, error: 'Cloud push failed. Check internet connection.' };
+    return { success: false, error: 'Network error during cloud push.' };
   }
 };
 
@@ -56,28 +49,25 @@ export const pullFromCloud = async (syncId: string): Promise<SyncResult<SyncData
   try {
     const response = await fetch(`${API_BASE}/${syncId}`, {
       method: 'GET',
-      headers: {
-        'Accept': 'application/json'
-      }
     });
     
     if (response.status === 404) {
-      return { success: false, error: 'Cloud data ID not found.' };
+      return { success: false, error: '404' }; // Special code for 'Not Created Yet'
     }
     
     if (!response.ok) {
-      return { success: false, error: `Download failed: Status ${response.status}` };
+      return { success: false, error: `Cloud fetch error: ${response.status}` };
     }
 
-    const data = await response.json();
+    const rawData = await response.text();
+    const data = JSON.parse(rawData);
     
-    // Validate data structure
     if (!data || typeof data !== 'object' || !Array.isArray(data.drinks)) {
-      return { success: false, error: 'Invalid data format returned from cloud.' };
+      return { success: false, error: 'Cloud data corrupted.' };
     }
 
     return { success: true, data: data as SyncData };
   } catch (e: any) {
-    return { success: false, error: 'Could not reach cloud server.' };
+    return { success: false, error: 'Cloud unreachable. Check connection.' };
   }
 };
