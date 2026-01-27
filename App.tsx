@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { DrinkRecord, View, SyncData, STORAGE_KEY_SYNC_ID, SyncLog } from './types';
 import { 
@@ -37,12 +36,11 @@ const App: React.FC = () => {
       status,
       message
     };
-    setSyncLogs(prev => [newLog, ...prev].slice(0, 10)); // Keep only last 10 logs
+    setSyncLogs(prev => [newLog, ...prev].slice(0, 10));
     if (status === 'error') setLastSyncError(message);
     else if (status === 'success') setLastSyncError(null);
   };
 
-  // Initial Load
   useEffect(() => {
     const init = async () => {
       const loadedDrinks = getStoredDrinks();
@@ -60,17 +58,19 @@ const App: React.FC = () => {
         
         if (result.success && result.data) {
           const cloudData = result.data;
+          // Simple conflict resolution: if cloud has more data or is very recent, take it
           if (cloudData.drinks.length > loadedDrinks.length || (cloudData.drinks.length === loadedDrinks.length && cloudData.updatedAt > (Date.now() - 300000))) {
             setDrinks(cloudData.drinks);
             setTarget(cloudData.target);
-            addLog('success', `Restored ${cloudData.drinks.length} records from cloud.`);
+            addLog('success', `Cloud sync active: ${cloudData.drinks.length} records.`);
           } else {
-            addLog('info', 'Local version is up to date.');
+            addLog('info', 'Local data is up to date.');
           }
           setSyncStatus('synced');
         } else {
+          // If pull failed, we keep local data but mark error
           setSyncStatus('error');
-          addLog('error', result.error || 'Unknown cloud error during initial pull.');
+          addLog('error', result.error || 'Failed to pull cloud data.');
         }
       }
       
@@ -79,7 +79,6 @@ const App: React.FC = () => {
     init();
   }, []);
 
-  // Save changes to localStorage AND trigger Cloud Sync
   useEffect(() => {
     if (isLoaded) {
       saveStoredDrinks(drinks);
@@ -113,9 +112,9 @@ const App: React.FC = () => {
     setSyncStatus(result.success ? 'synced' : 'error');
     
     if (result.success) {
-      addLog('success', 'Sync completed successfully.');
+      addLog('success', 'Backup saved to cloud.');
     } else {
-      addLog('error', result.error || 'Sync failed.');
+      addLog('error', result.error || 'Cloud backup failed.');
     }
   };
 
@@ -123,42 +122,45 @@ const App: React.FC = () => {
     if (!syncId) return;
     setSyncStatus('syncing');
     if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-    syncTimeoutRef.current = setTimeout(performSync, 2000);
+    syncTimeoutRef.current = setTimeout(performSync, 2500);
   };
 
   const handleManualSync = () => {
     if (!syncId) return;
     setSyncStatus('syncing');
     if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-    addLog('info', 'Manual sync requested...');
+    addLog('info', 'Syncing manually...');
     performSync();
   };
 
   const handleSetSyncId = (id: string | null) => {
     if (id) {
       localStorage.setItem(STORAGE_KEY_SYNC_ID, id);
-      addLog('info', `Switched to sync session.`);
     } else {
       localStorage.removeItem(STORAGE_KEY_SYNC_ID);
-      addLog('info', 'Cloud sync disabled.');
     }
     setSyncId(id);
+    
     if (id) {
         setSyncStatus('syncing');
+        addLog('info', 'Connecting to existing session...');
         pullFromCloud(id).then(result => {
              if (result.success && result.data) {
                 setDrinks(result.data.drinks);
                 setTarget(result.data.target);
-                addLog('success', 'Loaded data from new key.');
+                addLog('success', 'Successfully connected and updated data.');
                 setSyncStatus('synced');
              } else {
-                triggerCloudSync();
+                // If it's a new ID that hasn't been pushed yet, initialize it
+                addLog('info', 'ID not found on cloud. Initializing new backup...');
+                performSync();
              }
         });
+    } else {
+        setSyncStatus('idle');
+        addLog('info', 'Cloud sync disabled.');
     }
   };
-
-  const clearLogs = () => setSyncLogs([]);
 
   const addDrink = () => {
     const newDrink: DrinkRecord = {
@@ -194,7 +196,6 @@ const App: React.FC = () => {
     <div className="h-screen w-full flex flex-col relative overflow-hidden bg-md3-surface">
       <main className="flex-1 relative overflow-hidden">
         <div className={`absolute inset-0 transition-all duration-300 transform ${view === 'home' ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-95 pointer-events-none'}`}>
-          {/* Fix: Pass onClearSyncError to HomePage to resolve the missing setLastSyncError in Home.tsx */}
           <HomePage 
             drinks={drinks} 
             target={target} 
@@ -219,7 +220,7 @@ const App: React.FC = () => {
             syncId={syncId} 
             onSetSyncId={handleSetSyncId}
             syncLogs={syncLogs}
-            onClearLogs={clearLogs}
+            onClearLogs={() => setSyncLogs([])}
             onManualSync={handleManualSync}
            />
         </div>
