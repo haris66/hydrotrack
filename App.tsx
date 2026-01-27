@@ -41,6 +41,22 @@ const App: React.FC = () => {
     else if (status === 'success') setLastSyncError(null);
   };
 
+  const performPush = async (id: string) => {
+    const data: SyncData = {
+      drinks,
+      target,
+      updatedAt: Date.now()
+    };
+    const result = await pushToCloud(id, data);
+    if (result.success) {
+      setSyncStatus('synced');
+      addLog('success', 'Backup successful.');
+    } else {
+      setSyncStatus('error');
+      addLog('error', result.error || 'Failed to update cloud.');
+    }
+  };
+
   useEffect(() => {
     const init = async () => {
       const loadedDrinks = getStoredDrinks();
@@ -53,24 +69,27 @@ const App: React.FC = () => {
       
       if (syncId) {
         setSyncStatus('syncing');
-        addLog('info', 'Connecting to cloud service...');
+        addLog('info', 'Connecting to cloud sync...');
         const result = await pullFromCloud(syncId);
         
         if (result.success && result.data) {
           const cloudData = result.data;
-          // Simple conflict resolution: if cloud has more data or is very recent, take it
-          if (cloudData.drinks.length > loadedDrinks.length || (cloudData.drinks.length === loadedDrinks.length && cloudData.updatedAt > (Date.now() - 300000))) {
+          // Strategy: if local is empty or older, take cloud
+          if (loadedDrinks.length === 0 || cloudData.updatedAt > (Date.now() - 60000)) {
             setDrinks(cloudData.drinks);
             setTarget(cloudData.target);
-            addLog('success', `Cloud sync active: ${cloudData.drinks.length} records.`);
+            addLog('success', 'Data restored from cloud.');
           } else {
-            addLog('info', 'Local data is up to date.');
+            addLog('info', 'Local data is newer, keeping it.');
           }
           setSyncStatus('synced');
+        } else if (result.error === '404') {
+          // This is a new ID that hasn't been pushed yet. Let's initialize it.
+          addLog('info', 'New session detected. Initializing cloud...');
+          await performPush(syncId);
         } else {
-          // If pull failed, we keep local data but mark error
           setSyncStatus('error');
-          addLog('error', result.error || 'Failed to pull cloud data.');
+          addLog('error', result.error || 'Cloud offline.');
         }
       }
       
@@ -99,38 +118,19 @@ const App: React.FC = () => {
     }
   }, [view, isLoaded]);
 
-  const performSync = async () => {
-    if (!syncId) return;
-    
-    const data: SyncData = {
-      drinks,
-      target,
-      updatedAt: Date.now()
-    };
-    
-    const result = await pushToCloud(syncId, data);
-    setSyncStatus(result.success ? 'synced' : 'error');
-    
-    if (result.success) {
-      addLog('success', 'Backup saved to cloud.');
-    } else {
-      addLog('error', result.error || 'Cloud backup failed.');
-    }
-  };
-
   const triggerCloudSync = () => {
     if (!syncId) return;
     setSyncStatus('syncing');
     if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-    syncTimeoutRef.current = setTimeout(performSync, 2500);
+    syncTimeoutRef.current = setTimeout(() => performPush(syncId), 3000);
   };
 
   const handleManualSync = () => {
     if (!syncId) return;
     setSyncStatus('syncing');
     if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-    addLog('info', 'Syncing manually...');
-    performSync();
+    addLog('info', 'Manual sync triggered...');
+    performPush(syncId);
   };
 
   const handleSetSyncId = (id: string | null) => {
@@ -143,17 +143,17 @@ const App: React.FC = () => {
     
     if (id) {
         setSyncStatus('syncing');
-        addLog('info', 'Connecting to existing session...');
-        pullFromCloud(id).then(result => {
+        addLog('info', `Switching to session: ${id}`);
+        pullFromCloud(id).then(async result => {
              if (result.success && result.data) {
                 setDrinks(result.data.drinks);
                 setTarget(result.data.target);
-                addLog('success', 'Successfully connected and updated data.');
+                addLog('success', 'Connected! Data merged.');
                 setSyncStatus('synced');
              } else {
-                // If it's a new ID that hasn't been pushed yet, initialize it
-                addLog('info', 'ID not found on cloud. Initializing new backup...');
-                performSync();
+                // If 404 or other error, push local data to claim the ID
+                addLog('info', 'Claiming cloud ID with local data...');
+                await performPush(id);
              }
         });
     } else {
@@ -187,8 +187,11 @@ const App: React.FC = () => {
   };
 
   if (!isLoaded) return (
-    <div className="h-screen w-full flex items-center justify-center bg-md3-surface">
-      <div className="w-12 h-12 border-4 border-md3-primary border-t-transparent rounded-full animate-spin"></div>
+    <div className="h-screen w-full flex items-center justify-center bg-md3-surface text-md3-primary">
+      <div className="flex flex-col items-center gap-4">
+        <div className="w-10 h-10 border-4 border-current border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-xs font-black uppercase tracking-widest opacity-50">Hydrating...</p>
+      </div>
     </div>
   );
 
