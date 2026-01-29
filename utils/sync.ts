@@ -1,32 +1,42 @@
 import { SyncData, SyncResult } from '../types';
 
 /**
- * Pantry Cloud (getpantry.cloud) provides free JSON storage.
- * Structure: https://getpantry.cloud/apiv1/pantry/{PANTRY_ID}/basket/{BASKET_ID}
+ * JSONStorage.net is a free, reliable JSON storage service.
+ * It does not require pre-created accounts or buckets.
  */
-const PANTRY_ID = 'a7d8856c-0e29-4d92-9a9f-35c9a4194098'; // Dedicated Pantry for HydroTrack
-const BASE_URL = `https://getpantry.cloud/apiv1/pantry/${PANTRY_ID}/basket`;
+const API_BASE = 'https://api.jsonstorage.net/v1/json';
 
 export const createCloudBin = async (initialData: SyncData): Promise<SyncResult<string>> => {
   try {
-    // Generate a clean 6-character ID for the user's basket
-    const syncId = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const result = await pushToCloud(syncId, initialData);
-    
-    if (result.success) {
-      return { success: true, data: syncId };
+    const response = await fetch(API_BASE, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(initialData),
+    });
+
+    if (!response.ok) {
+      return { success: false, error: `Cloud Error ${response.status}: Failed to provision storage.` };
     }
-    return { success: false, error: result.error };
+
+    const result = await response.json();
+    // result.uri is like "https://api.jsonstorage.net/v1/json/123-abc-456"
+    if (!result.uri) {
+      return { success: false, error: 'Storage provider did not return a valid URI.' };
+    }
+
+    const syncId = result.uri.split('/').pop();
+    return { success: true, data: syncId };
   } catch (e: any) {
-    return { success: false, error: 'Could not initialize Pantry storage.' };
+    return { success: false, error: `Connection failed: ${e.message}` };
   }
 };
 
 export const pushToCloud = async (syncId: string, data: SyncData): Promise<SyncResult<null>> => {
   try {
-    // Pantry POST creates or replaces the basket content.
-    const response = await fetch(`${BASE_URL}/${syncId}`, {
-      method: 'POST',
+    const response = await fetch(`${API_BASE}/${syncId}`, {
+      method: 'PUT',
       headers: { 
         'Content-Type': 'application/json'
       },
@@ -34,18 +44,18 @@ export const pushToCloud = async (syncId: string, data: SyncData): Promise<SyncR
     });
 
     if (!response.ok) {
-      return { success: false, error: `Pantry Error ${response.status}: Sync failed.` };
+      return { success: false, error: `Upload failed: Status ${response.status}` };
     }
 
     return { success: true };
   } catch (e: any) {
-    return { success: false, error: 'Network error connecting to Pantry.' };
+    return { success: false, error: 'Network error during cloud backup.' };
   }
 };
 
 export const pullFromCloud = async (syncId: string): Promise<SyncResult<SyncData>> => {
   try {
-    const response = await fetch(`${BASE_URL}/${syncId}`, {
+    const response = await fetch(`${API_BASE}/${syncId}`, {
       method: 'GET',
       headers: {
         'Accept': 'application/json'
@@ -53,7 +63,7 @@ export const pullFromCloud = async (syncId: string): Promise<SyncResult<SyncData
     });
     
     if (response.status === 404) {
-      return { success: false, error: '404' }; // Special code: basket doesn't exist yet
+      return { success: false, error: 'Cloud session not found.' };
     }
     
     if (!response.ok) {
@@ -62,13 +72,12 @@ export const pullFromCloud = async (syncId: string): Promise<SyncResult<SyncData
 
     const data = await response.json();
     
-    // Validate data structure
     if (!data || typeof data !== 'object' || !Array.isArray(data.drinks)) {
-      return { success: false, error: 'Invalid data format in Pantry.' };
+      return { success: false, error: 'Data on cloud is in an unrecognized format.' };
     }
 
     return { success: true, data: data as SyncData };
   } catch (e: any) {
-    return { success: false, error: 'Pantry server unreachable.' };
+    return { success: false, error: 'Cloud storage is currently unreachable.' };
   }
 };
