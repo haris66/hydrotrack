@@ -41,19 +41,22 @@ const App: React.FC = () => {
     else if (status === 'success') setLastSyncError(null);
   };
 
-  const performPush = async (id: string) => {
+  const performSync = async () => {
+    if (!syncId) return;
+    
     const data: SyncData = {
       drinks,
       target,
       updatedAt: Date.now()
     };
-    const result = await pushToCloud(id, data);
+    
+    const result = await pushToCloud(syncId, data);
     if (result.success) {
       setSyncStatus('synced');
-      addLog('success', 'Pantry backup updated.');
+      addLog('success', 'Backup saved successfully.');
     } else {
       setSyncStatus('error');
-      addLog('error', result.error || 'Failed to update Pantry.');
+      addLog('error', result.error || 'Failed to update cloud.');
     }
   };
 
@@ -69,27 +72,23 @@ const App: React.FC = () => {
       
       if (syncId) {
         setSyncStatus('syncing');
-        addLog('info', `Connecting to Pantry basket: ${syncId}`);
+        addLog('info', 'Connecting to cloud storage...');
         const result = await pullFromCloud(syncId);
         
         if (result.success && result.data) {
           const cloudData = result.data;
-          // Strategy: if local is empty or older, take cloud
+          // If cloud is newer or local is empty, use cloud
           if (loadedDrinks.length === 0 || cloudData.updatedAt > (Date.now() - 300000)) {
             setDrinks(cloudData.drinks);
             setTarget(cloudData.target);
-            addLog('success', 'Data synced from Pantry.');
+            addLog('success', 'Data synchronized from cloud.');
           } else {
             addLog('info', 'Local data is up to date.');
           }
           setSyncStatus('synced');
-        } else if (result.error === '404') {
-          // Basket doesn't exist yet, initialize it
-          addLog('info', 'New Pantry session. Initializing cloud storage...');
-          await performPush(syncId);
         } else {
           setSyncStatus('error');
-          addLog('error', result.error || 'Pantry connection failed.');
+          addLog('error', result.error || 'Cloud session unreachable.');
         }
       }
       
@@ -122,7 +121,7 @@ const App: React.FC = () => {
     if (!syncId) return;
     setSyncStatus('syncing');
     if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-    syncTimeoutRef.current = setTimeout(() => performPush(syncId), 2500);
+    syncTimeoutRef.current = setTimeout(performSync, 3000);
   };
 
   const handleManualSync = () => {
@@ -130,7 +129,7 @@ const App: React.FC = () => {
     setSyncStatus('syncing');
     if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
     addLog('info', 'Manual sync triggered...');
-    performPush(syncId);
+    performSync();
   };
 
   const handleSetSyncId = (id: string | null) => {
@@ -143,22 +142,21 @@ const App: React.FC = () => {
     
     if (id) {
         setSyncStatus('syncing');
-        addLog('info', `Switching to Pantry basket: ${id}`);
-        pullFromCloud(id).then(async result => {
+        addLog('info', `Switching to session: ${id}`);
+        pullFromCloud(id).then(result => {
              if (result.success && result.data) {
                 setDrinks(result.data.drinks);
                 setTarget(result.data.target);
-                addLog('success', 'Connected to existing Pantry data.');
+                addLog('success', 'Connected to existing data.');
                 setSyncStatus('synced');
              } else {
-                // If 404 or other error, push current state to claim/create the basket
-                addLog('info', 'Claiming Pantry session with local data...');
-                await performPush(id);
+                addLog('error', 'Cloud ID invalid or not found.');
+                setSyncStatus('error');
              }
         });
     } else {
         setSyncStatus('idle');
-        addLog('info', 'Sync disabled.');
+        addLog('info', 'Cloud sync disabled.');
     }
   };
 
