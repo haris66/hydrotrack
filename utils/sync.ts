@@ -1,40 +1,32 @@
 import { SyncData, SyncResult } from '../types';
 
 /**
- * npoint.io is a free, reliable JSON bin service with great CORS support.
- * It provides a simple API to create (POST), update (PUT), and fetch (GET) JSON.
+ * Pantry Cloud (getpantry.cloud) provides free JSON storage.
+ * Structure: https://getpantry.cloud/apiv1/pantry/{PANTRY_ID}/basket/{BASKET_ID}
  */
-const API_BASE = 'https://api.npoint.io';
+const PANTRY_ID = 'a7d8856c-0e29-4d92-9a9f-35c9a4194098'; // Dedicated Pantry for HydroTrack
+const BASE_URL = `https://getpantry.cloud/apiv1/pantry/${PANTRY_ID}/basket`;
 
 export const createCloudBin = async (initialData: SyncData): Promise<SyncResult<string>> => {
   try {
-    const response = await fetch(API_BASE, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(initialData),
-    });
-
-    if (!response.ok) {
-      return { success: false, error: `Cloud Error ${response.status}: Failed to create bin.` };
+    // Generate a clean 6-character ID for the user's basket
+    const syncId = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const result = await pushToCloud(syncId, initialData);
+    
+    if (result.success) {
+      return { success: true, data: syncId };
     }
-
-    const result = await response.json();
-    if (!result.binId) {
-      return { success: false, error: 'Cloud provider did not return a bin ID.' };
-    }
-
-    return { success: true, data: result.binId };
+    return { success: false, error: result.error };
   } catch (e: any) {
-    return { success: false, error: `Connection failed: ${e.message}` };
+    return { success: false, error: 'Could not initialize Pantry storage.' };
   }
 };
 
 export const pushToCloud = async (syncId: string, data: SyncData): Promise<SyncResult<null>> => {
   try {
-    const response = await fetch(`${API_BASE}/${syncId}`, {
-      method: 'PUT',
+    // Pantry POST creates or replaces the basket content.
+    const response = await fetch(`${BASE_URL}/${syncId}`, {
+      method: 'POST',
       headers: { 
         'Content-Type': 'application/json'
       },
@@ -42,19 +34,18 @@ export const pushToCloud = async (syncId: string, data: SyncData): Promise<SyncR
     });
 
     if (!response.ok) {
-      if (response.status === 404) return { success: false, error: 'Sync session not found or expired.' };
-      return { success: false, error: `Upload failed: HTTP ${response.status}` };
+      return { success: false, error: `Pantry Error ${response.status}: Sync failed.` };
     }
 
     return { success: true };
   } catch (e: any) {
-    return { success: false, error: 'Cloud push failed. Check internet connection.' };
+    return { success: false, error: 'Network error connecting to Pantry.' };
   }
 };
 
 export const pullFromCloud = async (syncId: string): Promise<SyncResult<SyncData>> => {
   try {
-    const response = await fetch(`${API_BASE}/${syncId}`, {
+    const response = await fetch(`${BASE_URL}/${syncId}`, {
       method: 'GET',
       headers: {
         'Accept': 'application/json'
@@ -62,7 +53,7 @@ export const pullFromCloud = async (syncId: string): Promise<SyncResult<SyncData
     });
     
     if (response.status === 404) {
-      return { success: false, error: 'Cloud data ID not found.' };
+      return { success: false, error: '404' }; // Special code: basket doesn't exist yet
     }
     
     if (!response.ok) {
@@ -73,11 +64,11 @@ export const pullFromCloud = async (syncId: string): Promise<SyncResult<SyncData
     
     // Validate data structure
     if (!data || typeof data !== 'object' || !Array.isArray(data.drinks)) {
-      return { success: false, error: 'Invalid data format returned from cloud.' };
+      return { success: false, error: 'Invalid data format in Pantry.' };
     }
 
     return { success: true, data: data as SyncData };
   } catch (e: any) {
-    return { success: false, error: 'Could not reach cloud server.' };
+    return { success: false, error: 'Pantry server unreachable.' };
   }
 };
