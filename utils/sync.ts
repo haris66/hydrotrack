@@ -1,73 +1,83 @@
 import { SyncData, SyncResult } from '../types';
 
 /**
- * KVDB.io bucket structure: https://kvdb.io/BUCKET_ID/KEY
- * Per user request: Sync ID (e.g., ZX6EVX) is used as the BUCKET_ID.
- * We use 'data' as the fixed key inside that bucket.
+ * npoint.io is a free, reliable JSON bin service with great CORS support.
+ * It provides a simple API to create (POST), update (PUT), and fetch (GET) JSON.
  */
-const getSyncUrl = (syncId: string) => `https://kvdb.io/${syncId}/data`;
+const API_BASE = 'https://api.npoint.io';
 
 export const createCloudBin = async (initialData: SyncData): Promise<SyncResult<string>> => {
   try {
-    // Generate a clean 6-character ID for the new bucket
-    const syncId = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const result = await pushToCloud(syncId, initialData);
-    
-    if (result.success) {
-      return { success: true, data: syncId };
+    const response = await fetch(API_BASE, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(initialData),
+    });
+
+    if (!response.ok) {
+      return { success: false, error: `Cloud Error ${response.status}: Failed to create bin.` };
     }
-    return { success: false, error: result.error };
+
+    const result = await response.json();
+    if (!result.binId) {
+      return { success: false, error: 'Cloud provider did not return a bin ID.' };
+    }
+
+    return { success: true, data: result.binId };
   } catch (e: any) {
-    return { success: false, error: 'Could not initialize cloud storage.' };
+    return { success: false, error: `Connection failed: ${e.message}` };
   }
 };
 
 export const pushToCloud = async (syncId: string, data: SyncData): Promise<SyncResult<null>> => {
   try {
-    // We use POST to the bucket/key URL.
-    // Content-Type 'text/plain' makes this a "Simple Request", skipping CORS preflight (OPTIONS).
-    const response = await fetch(getSyncUrl(syncId), {
-      method: 'POST',
+    const response = await fetch(`${API_BASE}/${syncId}`, {
+      method: 'PUT',
       headers: { 
-        'Content-Type': 'text/plain' 
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify(data),
     });
 
     if (!response.ok) {
-      return { success: false, error: `Cloud sync failed: HTTP ${response.status}` };
+      if (response.status === 404) return { success: false, error: 'Sync session not found or expired.' };
+      return { success: false, error: `Upload failed: HTTP ${response.status}` };
     }
 
     return { success: true };
   } catch (e: any) {
-    return { success: false, error: 'Network error during cloud push.' };
+    return { success: false, error: 'Cloud push failed. Check internet connection.' };
   }
 };
 
 export const pullFromCloud = async (syncId: string): Promise<SyncResult<SyncData>> => {
   try {
-    const response = await fetch(getSyncUrl(syncId), {
+    const response = await fetch(`${API_BASE}/${syncId}`, {
       method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      }
     });
     
-    // 404 means the bucket or the 'data' key doesn't exist yet.
     if (response.status === 404) {
-      return { success: false, error: '404' }; 
+      return { success: false, error: 'Cloud data ID not found.' };
     }
     
     if (!response.ok) {
-      return { success: false, error: `Cloud fetch error: ${response.status}` };
+      return { success: false, error: `Download failed: Status ${response.status}` };
     }
 
-    const rawData = await response.text();
-    const data = JSON.parse(rawData);
+    const data = await response.json();
     
+    // Validate data structure
     if (!data || typeof data !== 'object' || !Array.isArray(data.drinks)) {
-      return { success: false, error: 'Cloud data corrupted.' };
+      return { success: false, error: 'Invalid data format returned from cloud.' };
     }
 
     return { success: true, data: data as SyncData };
   } catch (e: any) {
-    return { success: false, error: 'Cloud unreachable. Check connection.' };
+    return { success: false, error: 'Could not reach cloud server.' };
   }
 };
