@@ -41,22 +41,6 @@ const App: React.FC = () => {
     else if (status === 'success') setLastSyncError(null);
   };
 
-  const performPush = async (id: string) => {
-    const data: SyncData = {
-      drinks,
-      target,
-      updatedAt: Date.now()
-    };
-    const result = await pushToCloud(id, data);
-    if (result.success) {
-      setSyncStatus('synced');
-      addLog('success', 'Cloud backup updated.');
-    } else {
-      setSyncStatus('error');
-      addLog('error', result.error || 'Failed to update cloud.');
-    }
-  };
-
   useEffect(() => {
     const init = async () => {
       const loadedDrinks = getStoredDrinks();
@@ -69,29 +53,23 @@ const App: React.FC = () => {
       
       if (syncId) {
         setSyncStatus('syncing');
-        addLog('info', `Connecting to cloud bucket: ${syncId}`);
+        addLog('info', 'Connecting to cloud service...');
         const result = await pullFromCloud(syncId);
         
         if (result.success && result.data) {
           const cloudData = result.data;
-          // Strategy: if local is empty or older, take cloud
-          if (loadedDrinks.length === 0 || cloudData.updatedAt > (Date.now() - 60000)) {
+          // Simple conflict resolution: if cloud is newer, take it
+          if (cloudData.updatedAt > (Date.now() - 300000)) {
             setDrinks(cloudData.drinks);
             setTarget(cloudData.target);
-            addLog('success', 'Data restored from cloud.');
+            addLog('success', `Cloud sync active: ${cloudData.drinks.length} records found.`);
           } else {
-            addLog('info', 'Local data is newer, maintaining sync.');
+            addLog('info', 'Local data is up to date.');
           }
-          setSyncStatus('synced');
-        } else if (result.error === '404') {
-          // Key/Bucket doesn't exist. Initialize it.
-          addLog('info', 'Bucket empty. Initializing cloud store...');
-          const data: SyncData = { drinks: loadedDrinks, target: loadedTarget, updatedAt: Date.now() };
-          await pushToCloud(syncId, data);
           setSyncStatus('synced');
         } else {
           setSyncStatus('error');
-          addLog('error', result.error || 'Cloud offline.');
+          addLog('error', result.error || 'Failed to pull cloud data.');
         }
       }
       
@@ -120,19 +98,38 @@ const App: React.FC = () => {
     }
   }, [view, isLoaded]);
 
+  const performSync = async () => {
+    if (!syncId) return;
+    
+    const data: SyncData = {
+      drinks,
+      target,
+      updatedAt: Date.now()
+    };
+    
+    const result = await pushToCloud(syncId, data);
+    setSyncStatus(result.success ? 'synced' : 'error');
+    
+    if (result.success) {
+      addLog('success', 'Backup saved to cloud.');
+    } else {
+      addLog('error', result.error || 'Cloud backup failed.');
+    }
+  };
+
   const triggerCloudSync = () => {
     if (!syncId) return;
     setSyncStatus('syncing');
     if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-    syncTimeoutRef.current = setTimeout(() => performPush(syncId), 3000);
+    syncTimeoutRef.current = setTimeout(performSync, 2500);
   };
 
   const handleManualSync = () => {
     if (!syncId) return;
     setSyncStatus('syncing');
     if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-    addLog('info', 'Manual sync triggered...');
-    performPush(syncId);
+    addLog('info', 'Syncing manually...');
+    performSync();
   };
 
   const handleSetSyncId = (id: string | null) => {
@@ -145,17 +142,16 @@ const App: React.FC = () => {
     
     if (id) {
         setSyncStatus('syncing');
-        addLog('info', `Switching to bucket: ${id}`);
-        pullFromCloud(id).then(async result => {
+        addLog('info', 'Connecting to existing session...');
+        pullFromCloud(id).then(result => {
              if (result.success && result.data) {
                 setDrinks(result.data.drinks);
                 setTarget(result.data.target);
-                addLog('success', 'Cloud data downloaded successfully.');
+                addLog('success', 'Successfully connected and updated data.');
                 setSyncStatus('synced');
              } else {
-                // If 404 or other error, push current state to create/fix the cloud ID
-                addLog('info', 'Creating/claiming cloud bucket...');
-                await performPush(id);
+                addLog('error', 'Cloud session not found or invalid.');
+                setSyncStatus('error');
              }
         });
     } else {
@@ -189,16 +185,13 @@ const App: React.FC = () => {
   };
 
   if (!isLoaded) return (
-    <div className="h-screen w-full flex items-center justify-center bg-md3-surface text-md3-primary">
-      <div className="flex flex-col items-center gap-4">
-        <div className="w-10 h-10 border-4 border-current border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-xs font-black uppercase tracking-widest opacity-50">Initializing...</p>
-      </div>
+    <div className="h-screen w-full flex items-center justify-center bg-md3-surface">
+      <div className="w-12 h-12 border-4 border-md3-primary border-t-transparent rounded-full animate-spin"></div>
     </div>
   );
 
   return (
-    <div className="h-screen w-full flex flex-col relative overflow-hidden bg-md3-surface text-md3-onSurface">
+    <div className="h-screen w-full flex flex-col relative overflow-hidden bg-md3-surface">
       <main className="flex-1 relative overflow-hidden">
         <div className={`absolute inset-0 transition-all duration-300 transform ${view === 'home' ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-95 pointer-events-none'}`}>
           <HomePage 
